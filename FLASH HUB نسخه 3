@@ -1,0 +1,158 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local root = character:WaitForChild("HumanoidRootPart")
+
+local isGhost = false
+local isLocked = false
+local originalCFrame = nil
+local ghostParts = {}
+
+-- تابع برای فعال/غیرفعال کردن حالت روح
+local function toggleGhostMode()
+    isGhost = not isGhost
+    
+    if isGhost then
+        originalCFrame = root.CFrame
+        root.Anchored = true
+        root.Velocity = Vector3.new(0, 0, 0)
+        
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                table.insert(ghostParts, part)
+                part.CanCollide = false
+            end
+        end
+        humanoid.Sit = false
+    else
+        root.Anchored = false
+        for _, part in ipairs(ghostParts) do
+            part.CanCollide = true
+        end
+        ghostParts = {} 
+        
+        if originalCFrame then
+            root.CFrame = originalCFrame
+            originalCFrame = nil
+        end
+        humanoid.Sit = false 
+    end
+end
+
+-- تابع برای تلپورت Abuse
+local function teleportAbuse()
+    local currentCFrame = root.CFrame
+    local targetCFrame = root.CFrame * CFrame.new(0, -1000, 0)
+    
+    if root.Anchored then
+        root.Anchored = false
+    end
+    
+    root.CFrame = targetCFrame
+    
+    task.delay(3, function()
+        if not isGhost then
+            root.CFrame = currentCFrame
+        end
+    end)
+end
+
+-- ساختار GUI
+local screenGui = Instance.new("ScreenGui", game.CoreGui)
+
+-- دکمه اصلی FLASH (آبی با متن)
+local flashBtn = Instance.new("ImageButton", screenGui)
+flashBtn.Size = UDim2.new(0, 55, 0, 55)
+flashBtn.Position = UDim2.new(0.5, -27, 0.05, 0)
+flashBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 150) -- آبی تیره
+flashBtn.Draggable = true
+Instance.new("UICorner", flashBtn).CornerRadius = UDim.new(1, 0)
+
+local btnStroke = Instance.new("UIStroke", flashBtn)
+btnStroke.Color = Color3.fromRGB(255, 0, 0) -- حاشیه قرمز
+btnStroke.Thickness = 3
+
+local flashText = Instance.new("TextLabel", flashBtn)
+flashText.Size = UDim2.new(1, 0, 1, 0)
+flashText.BackgroundTransparency = 1
+flashText.Text = "FLASH"
+flashText.TextColor3 = Color3.new(1, 1, 1)
+flashText.Font = Enum.Font.GothamBold
+flashText.TextSize = 14
+
+-- پنل اصلی
+local mainPanel = Instance.new("Frame", screenGui)
+mainPanel.Size = UDim2.new(0, 200, 0, 260)
+mainPanel.Position = UDim2.new(0.5, -100, 0.5, -130)
+mainPanel.BackgroundColor3 = Color3.fromRGB(10, 10, 30) -- سرمه‌ای بسیار تیره (ترکیب آبی/مشکی)
+mainPanel.Visible = false
+mainPanel.Draggable = true
+Instance.new("UICorner", mainPanel).CornerRadius = UDim.new(0, 10)
+
+-- عنوان FLASH HUB
+local titleLabel = Instance.new("TextLabel", mainPanel)
+titleLabel.Size = UDim2.new(1, 0, 0, 30)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "FLASH HUB"
+titleLabel.TextColor3 = Color3.fromRGB(255, 0, 0) -- قرمز
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 18
+
+-- دکمه ANTI NULL
+local antiBtn = Instance.new("TextButton", mainPanel)
+antiBtn.Size = UDim2.new(0, 160, 0, 40)
+antiBtn.Position = UDim2.new(0.5, -80, 0.25, 0)
+antiBtn.Text = "ANTI NULL"
+antiBtn.Font = Enum.Font.GothamBold
+antiBtn.TextColor3 = Color3.new(1, 1, 1)
+antiBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 200) -- آبی
+antiBtn.MouseButton1Click:Connect(function()
+    toggleGhostMode()
+    antiBtn.Text = isGhost and "NORMAL MODE" or "ANTI NULL"
+    antiBtn.BackgroundColor3 = isGhost and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(0, 0, 200)
+end)
+
+-- دکمه ABUSE
+local abuseBtn = Instance.new("TextButton", mainPanel)
+abuseBtn.Size = UDim2.new(0, 160, 0, 40)
+abuseBtn.Position = UDim2.new(0.5, -80, 0.55, 0)
+abuseBtn.Text = "ABUSE"
+abuseBtn.Font = Enum.Font.GothamBold
+abuseBtn.TextColor3 = Color3.new(1, 1, 1)
+abuseBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0) -- قرمز تیره
+abuseBtn.MouseButton1Click:Connect(teleportAbuse)
+
+-- منطق باز و بسته شدن پنل
+flashBtn.MouseButton1Click:Connect(function()
+    mainPanel.Visible = not mainPanel.Visible
+end)
+
+-- مدیریت ریست شدن کاراکتر
+player.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    humanoid = character:WaitForChild("Humanoid")
+    root = character:WaitForChild("HumanoidRootPart")
+    isGhost = false
+    isLocked = false
+    originalCFrame = nil
+    ghostParts = {}
+    antiBtn.Text = "ANTI NULL"
+    antiBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 200)
+end)
+
+humanoid.Died:Connect(function()
+    isGhost = false
+    isLocked = false
+    root.Anchored = false
+    for _, part in ipairs(ghostParts) do
+        part.CanCollide = true
+    end
+    ghostParts = {}
+    originalCFrame = nil
+    antiBtn.Text = "ANTI NULL"
+    antiBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 200)
+end)
