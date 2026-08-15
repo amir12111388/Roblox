@@ -1,0 +1,947 @@
+import json
+import os
+import random
+import time
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatType
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
+
+# =========================================================
+# تنظیمات
+# =========================================================
+
+OWNER_ID = 7860500580
+
+DATA_FILE = "power_bot_data.json"
+
+MINING_COOLDOWN = 180
+
+DIAMOND_TO_COIN = 10
+
+data = {
+    "users": {},
+    "mining": {},
+}
+
+
+# =========================================================
+# ذخیره اطلاعات
+# =========================================================
+
+def load_data():
+    global data
+
+    if not os.path.exists(DATA_FILE):
+        return
+
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as file:
+            loaded = json.load(file)
+
+        data["users"] = loaded.get("users", {})
+        data["mining"] = loaded.get("mining", {})
+
+    except Exception:
+        data = {
+            "users": {},
+            "mining": {},
+        }
+
+
+def save_data():
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as file:
+            json.dump(
+                data,
+                file,
+                ensure_ascii=False,
+                indent=2,
+            )
+    except Exception as error:
+        print("خطا در ذخیره اطلاعات:", error)
+
+
+# =========================================================
+# کاربران
+# =========================================================
+
+def ensure_user(user_id, name):
+    user_id = str(user_id)
+
+    if user_id not in data["users"]:
+        data["users"][user_id] = {
+            "name": name,
+            "diamonds": 100,
+            "coins": 0,
+        }
+
+    data["users"][user_id]["name"] = name
+
+    return data["users"][user_id]
+
+
+def get_user(user_id, name="کاربر"):
+    return ensure_user(user_id, name)
+
+
+def get_diamonds(user_id, name="کاربر"):
+    if user_id == OWNER_ID:
+        return 10**30
+
+    return get_user(user_id, name)["diamonds"]
+
+
+def get_coins(user_id, name="کاربر"):
+    if user_id == OWNER_ID:
+        return 10**30
+
+    return get_user(user_id, name)["coins"]
+
+
+def add_diamonds(user_id, amount, name="کاربر"):
+    if user_id == OWNER_ID:
+        return
+
+    user = get_user(user_id, name)
+    user["diamonds"] += amount
+    save_data()
+
+
+def add_coins(user_id, amount, name="کاربر"):
+    if user_id == OWNER_ID:
+        return
+
+    user = get_user(user_id, name)
+    user["coins"] += amount
+    save_data()
+
+
+def remove_coins(user_id, amount, name="کاربر"):
+    if user_id == OWNER_ID:
+        return True
+
+    user = get_user(user_id, name)
+
+    if user["coins"] < amount:
+        return False
+
+    user["coins"] -= amount
+    save_data()
+
+    return True
+
+
+# =========================================================
+# استارت خصوصی
+# =========================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if not user or not chat:
+        return
+
+    name = user.first_name or "کاربر"
+
+    get_user(user.id, name)
+
+    # -----------------------------------------------------
+    # استارت داخل گروه
+    # -----------------------------------------------------
+
+    if chat.type in (
+        ChatType.GROUP,
+        ChatType.SUPERGROUP,
+    ):
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "💰 موجودی",
+                    callback_data="group_balance",
+                ),
+                InlineKeyboardButton(
+                    "📖 راهنما",
+                    callback_data="group_help",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "🔄 انتقال سکه",
+                    callback_data="transfer_help",
+                ),
+            ],
+        ]
+
+        text = (
+            f"👋 سلام {name}!\n\n"
+            "🎮 به Power Bot خوش آمدید.\n\n"
+            "💎 هر کاربر با استخراج می‌تواند الماس دریافت کند.\n"
+            "🪙 الماس‌ها را می‌توان به سکه تبدیل کرد.\n\n"
+            "⛏ برای استخراج بنویس:\n"
+            "استخراج الماس\n"
+            "استخراج\n"
+            "استر\n"
+            "استخر\n\n"
+            "💎 برای دیدن موجودی بنویس:\n"
+            "موجودی\n\n"
+            "🎮 برای دیدن بازی‌ها بنویس:\n"
+            "بازی‌ها\n\n"
+            "🔄 برای انتقال سکه می‌توانی از دکمه انتقال استفاده کنی."
+        )
+
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # استارت خصوصی
+    # -----------------------------------------------------
+
+    bot_username = context.bot.username
+
+    add_group_url = (
+        f"https://t.me/{bot_username}?startgroup=true"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "➕ اضافه کردن ربات به گروه",
+                url=add_group_url,
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔄 تبدیل",
+                callback_data="convert",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📖 راهنما",
+                callback_data="private_help",
+            ),
+            InlineKeyboardButton(
+                "💰 موجودی",
+                callback_data="private_balance",
+            ),
+        ],
+    ]
+
+    text = (
+        f"👋 سلام {name} عزیز!\n\n"
+        "🎮 به Power Bot خوش آمدی.\n\n"
+        "💎 سیستم اقتصادی ربات شامل دو واحد مجازی است:\n"
+        "💎 الماس\n"
+        "🪙 سکه\n\n"
+        "⛏ با استخراج می‌توانی الماس بگیری.\n"
+        "🔄 هر ۱ الماس برابر با ۱۰ سکه مجازی است.\n"
+        "🎮 بازی‌های سرگرمی هم داخل گروه قابل اجرا هستند.\n\n"
+        "👥 برای استفاده در گروه، ربات را با دکمه زیر "
+        "به گروه اضافه کن."
+    )
+
+    await update.message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+# =========================================================
+# موجودی
+# =========================================================
+
+async def balance_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    user = update.effective_user
+
+    if user.id == OWNER_ID:
+        await update.message.reply_text(
+            "👑 موجودی سازنده\n\n"
+            "💎 الماس: ♾️\n"
+            "🪙 سکه: ♾️"
+        )
+        return
+
+    name = user.first_name or "کاربر"
+
+    diamonds = get_diamonds(
+        user.id,
+        name,
+    )
+
+    coins = get_coins(
+        user.id,
+        name,
+    )
+
+    await update.message.reply_text(
+        "💰 موجودی شما\n\n"
+        f"💎 الماس: {diamonds}\n"
+        f"🪙 سکه: {coins}"
+    )
+
+
+# =========================================================
+# استخراج
+# =========================================================
+
+MINE_WORDS = {
+    "استخراج",
+    "استخراج الماس",
+    "استر",
+    "استخر",
+}
+
+
+def mining_key(user_id, chat_id):
+    return f"{user_id}:{chat_id}"
+
+
+def get_remaining(user_id, chat_id):
+
+    key = mining_key(
+        user_id,
+        chat_id,
+    )
+
+    if key not in data["mining"]:
+        return 0
+
+    last = data["mining"][key]
+
+    remaining = MINING_COOLDOWN - (
+        time.time() - last
+    )
+
+    if remaining <= 0:
+        return 0
+
+    return int(remaining) + 1
+
+
+def format_remaining(seconds):
+
+    minutes = seconds // 60
+    seconds = seconds % 60
+
+    if minutes:
+        return (
+            f"{minutes} دقیقه و "
+            f"{seconds} ثانیه"
+        )
+
+    return f"{seconds} ثانیه"
+
+
+async def mine_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if not user or not chat:
+        return
+
+    remaining = get_remaining(
+        user.id,
+        chat.id,
+    )
+
+    if remaining > 0:
+
+        await update.message.reply_text(
+            "⛏ کارگران معدن مشغول کار هستند! 😂\n\n"
+            f"⏳ {format_remaining(remaining)} "
+            "دیگه می‌تونی دوباره استخراج کنی."
+        )
+
+        return
+
+    amount = random.randint(
+        1,
+        100,
+    )
+
+    add_diamonds(
+        user.id,
+        amount,
+        user.first_name or "کاربر",
+    )
+
+    key = mining_key(
+        user.id,
+        chat.id,
+    )
+
+    data["mining"][key] = time.time()
+
+    save_data()
+
+    diamonds = get_diamonds(
+        user.id,
+        user.first_name or "کاربر",
+    )
+
+    await update.message.reply_text(
+        "⛏ استخراج موفق بود!\n\n"
+        f"💎 الماس دریافت شده: {amount}\n"
+        f"💎 موجودی الماس: {diamonds}\n\n"
+        "⏳ استخراج بعدی: ۳ دقیقه دیگر"
+    )
+
+
+# =========================================================
+# تبدیل الماس به سکه
+# =========================================================
+
+async def convert_button(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    await query.edit_message_text(
+        "🔄 تبدیل الماس به سکه\n\n"
+        "هر ۱ الماس = ۱۰ سکه است.\n\n"
+        "برای مثال اگر ۱۵۰ الماس داشته باشی، "
+        "می‌توانی ۱۵۰ الماس را به ۱۵۰۰ سکه تبدیل کنی.\n\n"
+        "برای تبدیل بنویس:\n"
+        "تبدیل 150"
+    )
+
+
+async def convert_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    amount=None,
+):
+
+    user = update.effective_user
+
+    if amount is None:
+        await update.message.reply_text(
+            "🔄 مقدار الماسی که می‌خواهی تبدیل کنی را بنویس.\n\n"
+            "مثال:\n"
+            "تبدیل 150"
+        )
+        return
+
+    if amount <= 0:
+        await update.message.reply_text(
+            "❌ مقدار باید بیشتر از صفر باشد."
+        )
+        return
+
+    if user.id == OWNER_ID:
+        await update.message.reply_text(
+            f"🔄 {amount} الماس تبدیل شد.\n"
+            f"🪙 سکه دریافتی: {amount * DIAMOND_TO_COIN}"
+        )
+        return
+
+    name = user.first_name or "کاربر"
+
+    diamonds = get_diamonds(
+        user.id,
+        name,
+    )
+
+    if diamonds < amount:
+        await update.message.reply_text(
+            "❌ الماس کافی نداری."
+        )
+        return
+
+    data["users"][str(user.id)]["diamonds"] -= amount
+
+    data["users"][str(user.id)]["coins"] += (
+        amount * DIAMOND_TO_COIN
+    )
+
+    save_data()
+
+    await update.message.reply_text(
+        "✅ تبدیل انجام شد!\n\n"
+        f"💎 الماس مصرف شده: {amount}\n"
+        f"🪙 سکه دریافت شده: "
+        f"{amount * DIAMOND_TO_COIN}\n\n"
+        f"💎 الماس باقی‌مانده: "
+        f"{data['users'][str(user.id)]['diamonds']}\n"
+        f"🪙 سکه فعلی: "
+        f"{data['users'][str(user.id)]['coins']}"
+    )
+
+
+# =========================================================
+# انتقال سکه
+# =========================================================
+
+async def transfer_help(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    await query.edit_message_text(
+        "🔄 انتقال سکه\n\n"
+        "برای انتقال سکه به یک کاربر، "
+        "در پاسخ به یکی از پیام‌های او بنویس:\n\n"
+        "انتقال 60\n\n"
+        "مثلاً اگر روی پیام دوستت Reply کنی و بنویسی:\n"
+        "انتقال 60\n\n"
+        "۶۰ سکه مجازی به او منتقل می‌شود."
+    )
+
+
+async def transfer_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    amount=None,
+):
+
+    if not update.message:
+        return
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text(
+            "❌ برای انتقال باید روی پیام کاربر موردنظر Reply کنی.\n\n"
+            "مثال:\n"
+            "انتقال 60"
+        )
+        return
+
+    if amount is None:
+        await update.message.reply_text(
+            "❌ مقدار سکه را مشخص کن.\n\n"
+            "مثال:\n"
+            "انتقال 60"
+        )
+        return
+
+    if amount <= 0:
+        await update.message.reply_text(
+            "❌ مقدار باید بیشتر از صفر باشد."
+        )
+        return
+
+    sender = update.effective_user
+    receiver = (
+        update.message.reply_to_message
+        .from_user
+    )
+
+    if sender.id == receiver.id:
+        await update.message.reply_text(
+            "❌ نمی‌توانی به خودت سکه انتقال بدهی."
+        )
+        return
+
+    sender_name = sender.first_name or "کاربر"
+    receiver_name = receiver.first_name or "کاربر"
+
+    if sender.id != OWNER_ID:
+
+        if not remove_coins(
+            sender.id,
+            amount,
+            sender_name,
+        ):
+            await update.message.reply_text(
+                "❌ سکه کافی نداری."
+            )
+            return
+
+    add_coins(
+        receiver.id,
+        amount,
+        receiver_name,
+    )
+
+    await update.message.reply_text(
+        "✅ انتقال انجام شد!\n\n"
+        f"👤 گیرنده: {receiver_name}\n"
+        f"🪙 مقدار انتقال: {amount} سکه"
+    )
+
+
+# =========================================================
+# بازی‌ها
+# =========================================================
+
+async def games_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    await update.message.reply_text(
+        "🎮 بازی‌های Power Bot\n\n"
+        "🪨📄✂️ سنگ کاغذ قیچی\n"
+        "🔢 حدس عدد\n"
+        "↔️ چپ یا راست\n\n"
+        "این بازی‌ها برای سرگرمی هستند "
+        "و از سکه به عنوان شرط استفاده نمی‌کنند."
+    )
+
+
+# =========================================================
+# چپ یا راست
+# =========================================================
+
+async def left_right(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    choice,
+):
+
+    correct = random.choice(
+        ["چپ", "راست"]
+    )
+
+    if choice == correct:
+
+        amount = random.randint(
+            5,
+            50,
+        )
+
+        add_coins(
+            update.effective_user.id,
+            amount,
+            update.effective_user.first_name or "کاربر",
+        )
+
+        result = (
+            "🎉 درست حدس زدی!\n\n"
+            f"🤖 انتخاب من: {correct}\n"
+            f"🪙 جایزه: {amount} سکه"
+        )
+
+    else:
+
+        result = (
+            "😄 این بار اشتباه شد!\n\n"
+            f"🤖 انتخاب من: {correct}\n"
+            "نگران نباش، دوباره امتحان کن."
+        )
+
+    await update.message.reply_text(
+        result
+    )
+
+
+# =========================================================
+# پردازش متن
+# =========================================================
+
+async def message_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    if not update.message:
+        return
+
+    text = update.message.text.strip()
+
+    # استخراج
+    if text in MINE_WORDS:
+        await mine_command(
+            update,
+            context,
+        )
+        return
+
+    # موجودی
+    if text in {
+        "موجودی",
+        "موجودی من",
+    }:
+        await balance_command(
+            update,
+            context,
+        )
+        return
+
+    # بازی‌ها
+    if text in {
+        "بازی‌ها",
+        "بازی ها",
+    }:
+        await games_command(
+            update,
+            context,
+        )
+        return
+
+    # چپ
+    if text == "چپ":
+        await left_right(
+            update,
+            context,
+            "چپ",
+        )
+        return
+
+    # راست
+    if text == "راست":
+        await left_right(
+            update,
+            context,
+            "راست",
+        )
+        return
+
+    # تبدیل
+    if text.startswith("تبدیل"):
+
+        parts = text.split()
+
+        if len(parts) == 1:
+            await convert_command(
+                update,
+                context,
+            )
+            return
+
+        try:
+            amount = int(parts[1])
+        except ValueError:
+            await update.message.reply_text(
+                "❌ مقدار را به صورت عدد وارد کن.\n\n"
+                "مثال:\n"
+                "تبدیل 150"
+            )
+            return
+
+        await convert_command(
+            update,
+            context,
+            amount,
+        )
+
+        return
+
+    # انتقال
+    if text.startswith("انتقال"):
+
+        parts = text.split()
+
+        if len(parts) == 1:
+            await transfer_command(
+                update,
+                context,
+            )
+            return
+
+        try:
+            amount = int(parts[1])
+        except ValueError:
+            await update.message.reply_text(
+                "❌ مقدار را به صورت عدد وارد کن.\n\n"
+                "مثال:\n"
+                "انتقال 60"
+            )
+            return
+
+        await transfer_command(
+            update,
+            context,
+            amount,
+        )
+
+        return
+
+    # راهنما
+    if text == "راهنما":
+
+        await update.message.reply_text(
+            "📖 راهنمای Power Bot\n\n"
+            "⛏ استخراج الماس\n"
+            "⛏ استخراج\n"
+            "⛏ استر\n"
+            "⛏ استخر\n\n"
+            "💎 موجودی\n"
+            "🎮 بازی‌ها\n"
+            "🔄 تبدیل 150\n"
+            "💰 انتقال 60\n\n"
+            "↔️ برای بازی چپ و راست بنویس:\n"
+            "چپ\n"
+            "یا\n"
+            "راست"
+        )
+
+        return
+
+
+# =========================================================
+# دکمه‌ها
+# =========================================================
+
+async def callback_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    user = query.from_user
+
+    if query.data == "convert":
+
+        await convert_button(
+            update,
+            context,
+        )
+
+        return
+
+    if query.data == "private_balance":
+
+        if user.id == OWNER_ID:
+            text = (
+                "💰 موجودی سازنده\n\n"
+                "💎 الماس: ♾️\n"
+                "🪙 سکه: ♾️"
+            )
+
+        else:
+
+            name = user.first_name or "کاربر"
+
+            text = (
+                "💰 موجودی شما\n\n"
+                f"💎 الماس: "
+                f"{get_diamonds(user.id, name)}\n"
+                f"🪙 سکه: "
+                f"{get_coins(user.id, name)}"
+            )
+
+        await query.edit_message_text(
+            text
+        )
+
+        return
+
+    if query.data == "group_balance":
+
+        if user.id == OWNER_ID:
+            text = (
+                "👑 موجودی سازنده\n\n"
+                "💎 الماس: ♾️\n"
+                "🪙 سکه: ♾️"
+            )
+
+        else:
+
+            name = user.first_name or "کاربر"
+
+            text = (
+                "💰 موجودی شما\n\n"
+                f"💎 الماس: "
+                f"{get_diamonds(user.id, name)}\n"
+                f"🪙 سکه: "
+                f"{get_coins(user.id, name)}"
+            )
+
+        await query.edit_message_text(
+            text
+        )
+
+        return
+
+    if query.data in {
+        "private_help",
+        "group_help",
+    }:
+
+        await query.edit_message_text(
+            "📖 راهنمای Power Bot\n\n"
+            "⛏ استخراج:\n"
+            "استخراج الماس\n"
+            "استخراج\n"
+            "استر\n"
+            "استخر\n\n"
+            "💎 هر استخراج بین ۱ تا ۱۰۰ الماس می‌دهد.\n"
+            "⏳ فاصله استخراج‌ها ۳ دقیقه است.\n\n"
+            "🔄 تبدیل:\n"
+            "تبدیل 150\n\n"
+            "هر ۱ الماس = ۱۰ سکه مجازی.\n\n"
+            "💰 انتقال:\n"
+            "روی پیام کاربر Reply کن و بنویس:\n"
+            "انتقال 60\n\n"
+            "🎮 بازی‌ها:\n"
+            "بازی‌ها"
+        )
+
+        return
+
+    if query.data == "transfer_help":
+
+        await transfer_help(
+            update,
+            context,
+        )
+
+        return
+
+
+# =========================================================
+# خطا
+# =========================================================
+
+async def error_handler(
+    update,
+    context,
+):
+
+    print(
+        "خطای ربات:",
+        context.error,
+    )
+
+
+# =========================================================
+# اجرای ربات
+# =========================================================
+
+def main():
+
+    load_data()
+
+    print("=" * 50)
+    print("💎 POWER BOT")
+    print("=" * 50)
+    print()
+    print("")
+    print("توکن قبلی را استفاده نکن.")
+    print()
+    
+    TOKEN = input("").strip(
